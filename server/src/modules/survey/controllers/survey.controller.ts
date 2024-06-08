@@ -24,6 +24,7 @@ import { HISTORY_TYPE } from 'src/enums';
 import { HttpException } from 'src/exceptions/httpException';
 import { EXCEPTION_CODE } from 'src/enums/exceptionCode';
 import { Logger } from 'src/logger';
+import { CounterService } from 'src/modules/surveyResponse/services/counter.service';
 
 @ApiTags('survey')
 @Controller('/api/survey')
@@ -35,6 +36,7 @@ export class SurveyController {
     private readonly contentSecurityService: ContentSecurityService,
     private readonly surveyHistoryService: SurveyHistoryService,
     private readonly logger: Logger,
+    private readonly counterService: CounterService
   ) {}
 
   @Get('/getBannerData')
@@ -253,6 +255,11 @@ export class SurveyController {
       pageId: surveyId,
     });
 
+    await this.counterService.createCounters({
+      surveyPath: surveyMeta.surveyPath,
+      dataList: surveyConf.code.dataConf.dataList
+    })
+    
     await this.surveyHistoryService.addHistory({
       surveyId,
       schema: surveyConf.code,

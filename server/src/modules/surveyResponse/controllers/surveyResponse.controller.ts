@@ -7,7 +7,6 @@ import { EXCEPTION_CODE } from 'src/enums/exceptionCode';
 import { getPushingData } from 'src/utils/messagePushing';
 
 import { ResponseSchemaService } from '../services/responseScheme.service';
-import { CounterService } from '../services/counter.service';
 import { SurveyResponseService } from '../services/surveyResponse.service';
 import { ClientEncryptService } from '../services/clientEncrypt.service';
 import { MessagePushingTaskService } from '../../message/services/messagePushingTask.service';
@@ -16,16 +15,19 @@ import moment from 'moment';
 import * as Joi from 'joi';
 import * as forge from 'node-forge';
 import { ApiTags } from '@nestjs/swagger';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+import { Counter } from 'src/models/counter.entity';
 
 @ApiTags('surveyResponse')
 @Controller('/api/surveyResponse')
 export class SurveyResponseController {
   constructor(
     private readonly responseSchemaService: ResponseSchemaService,
-    private readonly counterService: CounterService,
     private readonly surveyResponseService: SurveyResponseService,
     private readonly clientEncryptService: ClientEncryptService,
     private readonly messagePushingTaskService: MessagePushingTaskService,
+    @InjectDataSource() private dataSource: DataSource
   ) {}
 
   @Post('/createResponse')
@@ -146,38 +148,71 @@ export class SurveyResponseController {
         const arr = cur.options.map((optionItem) => ({
           hash: optionItem.hash,
           text: optionItem.text,
+          quota: optionItem.quota
         }));
         pre[cur.field] = arr;
         return pre;
       }, {});
-
-    // 对用户提交的数据进行遍历处理
-    for (const field in decryptedData) {
-      const value = decryptedData[field];
-      const values = Array.isArray(value) ? value : [value];
-      if (field in optionTextAndId) {
-        // 记录选项的提交数量，用于投票题回显、或者拓展上限限制功能
-        const optionCountData: Record<string, any> =
-          (await this.counterService.get({
-            surveyPath,
-            key: field,
-            type: 'option',
-          })) || { total: 0 };
-        optionCountData.total++;
-        for (const val of values) {
-          if (!optionCountData[val]) {
-            optionCountData[val] = 1;
-          } else {
-            optionCountData[val]++;
+  
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      for (const field in decryptedData) {
+        const value = decryptedData[field];
+        const values = Array.isArray(value) ? value : [value];
+        if (field in optionTextAndId) {
+          const countData = await queryRunner.manager.getMongoRepository(Counter).findOne({
+            where: {
+              key: field,
+              surveyPath,
+              type: 'option',
+            },
+          });
+          const optionCountData = countData?.data || { total: 0 };
+          for (const val of values) {
+                const option = optionTextAndId[field].find(opt => opt["hash"] === val);
+                if (option["quota"] ) {
+                  // 使用findOneAndUpdate确保更新时不超出配额
+                  const result = await queryRunner.manager.getMongoRepository(Counter).findOneAndUpdate(
+                    { key: field, surveyPath, type: 'option', [`data.${val}`]: { $lt: option["quota"] }},
+                    { $inc: {[`data.${val}`]: 1 }},
+                    { returnDocument: 'after' }
+                  );
+                  console.log("---------------");
+                  console.log(result);
+                  console.log("---------------");
+                  if (!result.value) {
+                    throw new HttpException(`${option['text']}已达到选择人数上限，请重新选择`, EXCEPTION_CODE.RESPONSE_OVER_LIMIT);
+                  }
+                } else {
+                  // 如果没有配额限制，则直接更新
+                  await queryRunner.manager.getMongoRepository(Counter).updateOne(
+                    { key: field, surveyPath, type: 'option' },
+                    { $inc: { [`data.${val}`]: 1 }},
+                    { upsert: true }
+                  );
+                }
           }
+          await queryRunner.manager.getMongoRepository(Counter).updateOne(
+            { key: field, surveyPath, type: 'option' },
+            { $inc: { "data.total": 1}},
+            { upsert: true }
+          );
         }
-        this.counterService.set({
-          surveyPath,
-          key: field,
-          data: optionCountData,
-          type: 'option',
-        });
       }
+      await queryRunner.commitTransaction();
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      console.error("Rollback successful but business logic exception:", error.message);
+      if (error instanceof HttpException) {
+        throw new HttpException(error.message, EXCEPTION_CODE.RESPONSE_OVER_LIMIT);
+      } else {
+        console.error("Rollback failed due to error:", error);
+        throw error;
+      }
+    } finally {
+      await queryRunner.release();
     }
 
     // 入库
