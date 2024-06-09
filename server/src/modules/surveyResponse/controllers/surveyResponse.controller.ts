@@ -15,9 +15,8 @@ import moment from 'moment';
 import * as Joi from 'joi';
 import * as forge from 'node-forge';
 import { ApiTags } from '@nestjs/swagger';
-import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
-import { Counter } from 'src/models/counter.entity';
+import { MutexService } from 'src/modules/mutex/services/mutexService.service';
+import { CounterService } from '../services/counter.service';
 
 @ApiTags('surveyResponse')
 @Controller('/api/surveyResponse')
@@ -27,7 +26,8 @@ export class SurveyResponseController {
     private readonly surveyResponseService: SurveyResponseService,
     private readonly clientEncryptService: ClientEncryptService,
     private readonly messagePushingTaskService: MessagePushingTaskService,
-    @InjectDataSource() private dataSource: DataSource
+    private readonly mutexService: MutexService,
+    private readonly counterService: CounterService,
   ) {}
 
   @Post('/createResponse')
@@ -153,67 +153,53 @@ export class SurveyResponseController {
         pre[cur.field] = arr;
         return pre;
       }, {});
-  
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-    try {
+    
+    //选项配额校验
+    await this.mutexService.runLocked(async () => {
       for (const field in decryptedData) {
         const value = decryptedData[field];
         const values = Array.isArray(value) ? value : [value];
         if (field in optionTextAndId) {
-          const countData = await queryRunner.manager.getMongoRepository(Counter).findOne({
-            where: {
+          const optionCountData = await this.counterService.get({
+              key: field,
+              surveyPath,
+              type: 'option'
+          });
+
+          //遍历选项hash值
+          for (const val of values) {
+            const option = optionTextAndId[field].find(opt => opt["hash"] === val);
+            if (option["quota"] && option["quota"] <= optionCountData[val]) {
+                throw new HttpException(`${option['text']}已达到选择人数上限，请重新选择`, EXCEPTION_CODE.RESPONSE_OVER_LIMIT);
+            }
+          }
+        }
+      };
+
+      for (const field in decryptedData) {
+        const value = decryptedData[field];
+        const values = Array.isArray(value) ? value : [value];
+        if (field in optionTextAndId) {
+          const optionCountData = await this.counterService.get({
+              key: field,
+              surveyPath,
+              type: 'option'
+          });
+          for (const val of values) {
+            optionCountData[val]++;
+            this.counterService.set({
               key: field,
               surveyPath,
               type: 'option',
-            },
-          });
-          const optionCountData = countData?.data || { total: 0 };
-          for (const val of values) {
-                const option = optionTextAndId[field].find(opt => opt["hash"] === val);
-                if (option["quota"] ) {
-                  // 使用findOneAndUpdate确保更新时不超出配额
-                  const result = await queryRunner.manager.getMongoRepository(Counter).findOneAndUpdate(
-                    { key: field, surveyPath, type: 'option', [`data.${val}`]: { $lt: option["quota"] }},
-                    { $inc: {[`data.${val}`]: 1 }},
-                    { returnDocument: 'after' }
-                  );
-                  console.log("---------------");
-                  console.log(result);
-                  console.log("---------------");
-                  if (!result.value) {
-                    throw new HttpException(`${option['text']}已达到选择人数上限，请重新选择`, EXCEPTION_CODE.RESPONSE_OVER_LIMIT);
-                  }
-                } else {
-                  // 如果没有配额限制，则直接更新
-                  await queryRunner.manager.getMongoRepository(Counter).updateOne(
-                    { key: field, surveyPath, type: 'option' },
-                    { $inc: { [`data.${val}`]: 1 }},
-                    { upsert: true }
-                  );
-                }
+              data: optionCountData
+            });
           }
-          await queryRunner.manager.getMongoRepository(Counter).updateOne(
-            { key: field, surveyPath, type: 'option' },
-            { $inc: { "data.total": 1}},
-            { upsert: true }
-          );
+          optionCountData['total']++;
         }
-      }
-      await queryRunner.commitTransaction();
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      console.error("Rollback successful but business logic exception:", error.message);
-      if (error instanceof HttpException) {
-        throw new HttpException(error.message, EXCEPTION_CODE.RESPONSE_OVER_LIMIT);
-      } else {
-        console.error("Rollback failed due to error:", error);
-        throw error;
-      }
-    } finally {
-      await queryRunner.release();
-    }
+      };
+
+    })
+
 
     // 入库
     const surveyResponse =

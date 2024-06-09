@@ -21,6 +21,7 @@ import { SurveyResponseUIController } from './controllers/surveyResponseUI.contr
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from '../auth/auth.module';
+import { MutexModule } from '../mutex/mutex.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { AuthModule } from '../auth/auth.module';
     ConfigModule,
     MessageModule,
     AuthModule,
+    MutexModule
   ],
   controllers: [
     ClientEncryptController,
