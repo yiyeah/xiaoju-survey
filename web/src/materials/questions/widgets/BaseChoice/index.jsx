@@ -47,6 +47,10 @@ export default defineComponent({
     voteTotal: {
       type: Number,
       default: 10
+    },
+    noDisplay:{
+      type: Boolean,
+      default: true
     }
   },
   emits: ['change'],
@@ -96,6 +100,7 @@ export default defineComponent({
       <div class="choice-wrapper">
         <div class={[isMatrix ? 'nest-box' : '', 'choice-box']}>
           {getOptions.map((item, index) => {
+            item.disabled = !this.readonly && item.quota === '0'
             return (
               !item.hide && (
                 <div
@@ -139,8 +144,20 @@ export default defineComponent({
                             <span
                               v-html={filterXSS(item.text)}
                               class="item-title-text"
-                              style="display: block; height: auto; padding: 9px 0"
-                            ></span>
+                              style="display: block; height: auto; padding-top: 9px"
+                            ></span>    
+                          )}
+                          {!this.readonly && !this.noDisplay && (
+                            <span
+                              class="remaining-text"
+                              style={{
+                                display: 'block',
+                                fontSize: 'smaller',
+                                color: item.quota === '0' ? '#EB505C' : '#92949D'
+                              }}
+                            >
+                              剩余{item.quota - item.voteCount}
+                            </span>
                           )}
                           {slots.vote?.({
                             option: item,
