@@ -13,7 +13,6 @@ export class CounterController {
 
   @Get('/queryOptionCountInfo')
   @HttpCode(200)
-  @UseGuards(Authtication)
   async queryOptionCountInfo(
     @Query()
     queryInfo: {

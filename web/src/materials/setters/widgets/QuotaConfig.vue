@@ -8,7 +8,7 @@
         设置>
     </span>
 
-    <el-dialog v-model="dialogTableVisible" class="dialog">
+    <el-dialog v-model="dialogTableVisible" @closed="cleanTempQuota" class="dialog">
         <template #header>
             <div class="dialog-title">选项配额</div>
         </template>
@@ -17,7 +17,7 @@
             :data="optionData" 
             border 
             style="width: 100%;"
-            @cell-click="handleCellClick" >
+            @cell-click="handleCellClick">
             <el-table-column property="text" label="选项"  style="width: 50%;"></el-table-column>
             <el-table-column property="quota" style="width: 50%;">
                 <template #header>
@@ -37,7 +37,7 @@
                         placeholder="请输入">
                     </el-input>
                     <div v-else class="item__txt">
-                        <span v-if="scope.row.tempQuota">{{scope.row.tempQuota}}</span>
+                        <span v-if="scope.row.tempQuota !== '0'">{{scope.row.tempQuota}}</span>
                         <span v-else style="color: #C8C9CD;">请输入</span>
                     </div>
                 </template>
@@ -48,7 +48,7 @@
         </div>
         <div>
             <el-checkbox
-                v-model="deleteRecoverValue.value"
+                v-model="deleteRecoverValue"
                 label="删除后恢复选项配额"
             >
             </el-checkbox>
@@ -58,7 +58,7 @@
         </div>
         <div>
             <el-checkbox
-                v-model="noDisplayValue.value"
+                v-model="noDisplayValue"
                 label="不展示配额剩余数量"
             >
             </el-checkbox>
@@ -80,28 +80,25 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, watch } from 'vue';
 import { FORM_CHANGE_EVENT_KEY } from '@/materials/setters/constant'
 
 const props = defineProps(['formConfig', 'moduleConfig'])
-const emit = defineEmits(['FORM_CHANGE_EVENT_KEY'])
+const emit = defineEmits(['form-change'])
 
 const dialogTableVisible = ref(false)
-const moduleConfig = props.moduleConfig
-const optionData = moduleConfig.options
-const deleteRecoverValue = ref(false)
-const noDisplayValue = ref(false)
+const moduleConfig = ref(props.moduleConfig)
+const optionData = ref(props.moduleConfig.options)
+const deleteRecoverValue = ref(moduleConfig.deleteRecover)
+const noDisplayValue = ref(moduleConfig.noDisplay)
 
 const openQuotaConfig = () =>{
-    optionData.forEach(item=>{
+    optionData.value.forEach(item=>{
         item.tempQuota = item.quota
     })
-    deleteRecoverValue.value = moduleConfig.deleteRecover !== undefined ? ref(moduleConfig.deleteRecover) : deleteRecoverValue.value
-    noDisplayValue.value = moduleConfig.noDisplay !== undefined ? ref(moduleConfig.noDisplay) : noDisplayValue.value
     dialogTableVisible.value = true
 }
 const cancel = () =>{
-    cleanTempQuota()
     dialogTableVisible.value = false
 }
 const confirm = () =>{
@@ -112,14 +109,17 @@ const confirm = () =>{
 }
 const handleCellClick = (row, column, cell, event) =>{
     if(column.property === 'quota'){
-        optionData.forEach(r => {
+        optionData.value.forEach(r => {
             if (r !== row) r.isEditing = false;
         });
-        row.tempQuota = row.quota
+        row.tempQuota = row.tempQuota === '0'? row.quota : row.tempQuota
         row.isEditing = true
     }
 }
 const handleInput = (row) => {
+    // if(row.tempQuota < row.quota){
+    //     row.tempQuota = row.quota
+    // }
     row.isEditing = false
 }
 
@@ -135,16 +135,26 @@ const handleNoDisplayChange = () =>{
     emit(FORM_CHANGE_EVENT_KEY, { key, value })
 }
 const handleQuotaChange = () =>{
-    optionData.forEach(item=>{
+    optionData.value.forEach(item=>{
         item.quota = item.tempQuota
         delete(item.tempQuota)
     })
 }
 const cleanTempQuota = () =>{
-    optionData.forEach(item=>{
+    optionData.value.forEach(item=>{
         delete(item.tempQuota)
     })
 }
+watch(
+  () => props.moduleConfig,
+  (val) => {
+    moduleConfig.value = val
+    optionData.value = val.options
+    deleteRecoverValue.value = val.deleteRecover
+    noDisplayValue.value = val.noDisplay
+  },
+  { immediate: true, deep: true }
+)
 </script>
 
 <style lang="scss" scoped>
