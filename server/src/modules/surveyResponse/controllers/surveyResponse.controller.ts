@@ -169,7 +169,7 @@ export class SurveyResponseController {
           //遍历选项hash值
           for (const val of values) {
             const option = optionTextAndId[field].find(opt => opt["hash"] === val);
-            if (option["quota"] && option["quota"] <= optionCountData[val]) {
+            if (option["quota"] != 0 && option["quota"] <= optionCountData[val]) {
                 const item = dataList.find(item => item["field"] === field);
                 throw new HttpException(`${item['title']}中的${option['text']}所选人数已达到上限，请重新选择`, EXCEPTION_CODE.RESPONSE_OVER_LIMIT);
             }

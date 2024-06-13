@@ -82,6 +82,7 @@
 <script setup>
 import { ref, watch } from 'vue';
 import { FORM_CHANGE_EVENT_KEY } from '@/materials/setters/constant'
+import { ElMessageBox } from 'element-plus'
 
 const props = defineProps(['formConfig', 'moduleConfig'])
 const emit = defineEmits(['form-change'])
@@ -117,9 +118,12 @@ const handleCellClick = (row, column, cell, event) =>{
     }
 }
 const handleInput = (row) => {
-    // if(row.tempQuota < row.quota){
-    //     row.tempQuota = row.quota
-    // }
+    if(row.tempQuota !== "0" && +row.tempQuota < +row.quota){
+        ElMessageBox.alert('配额数不可减少!', '警告', {
+            confirmButtonText: '确定',
+        })
+        row.tempQuota = row.quota
+    }
     row.isEditing = false
 }
 

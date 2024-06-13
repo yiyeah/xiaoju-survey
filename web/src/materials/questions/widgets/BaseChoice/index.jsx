@@ -100,7 +100,7 @@ export default defineComponent({
       <div class="choice-wrapper">
         <div class={[isMatrix ? 'nest-box' : '', 'choice-box']}>
           {getOptions.map((item, index) => {
-            item.disabled = !this.readonly && (item.quota - item.voteCount) === 0
+            item.disabled = !this.readonly && item.quota !== "0" && (item.quota - item.voteCount) === 0
             return (
               !item.hide && (
                 <div
@@ -147,7 +147,7 @@ export default defineComponent({
                               style="display: block; height: auto; padding-top: 9px"
                             ></span>    
                           )}
-                          {!this.readonly && !this.noDisplay && (
+                          {!this.readonly && item.quota !== "0" && !this.noDisplay && (
                             <span
                               class="remaining-text"
                               style={{
